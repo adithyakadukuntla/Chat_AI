@@ -1,12 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './chatbot.css'; // We'll include the styles separately
-import axios from 'axios'
+import axios from 'axios';
 import { FaMessage } from "react-icons/fa6";
 import { ImCross } from "react-icons/im";
+import { FaMicrophone } from "react-icons/fa";
+import { FaRegStopCircle } from "react-icons/fa";
+import { IoSend } from "react-icons/io5";
+import VoiceRecognition from '../voicerecognition/VoiceRecognition';
 
-// API of backend url its like http://127.45.8.187:8000 we have store it in constants and we have to import it and use it here 
+// API of backend url
+const API_URL = 'http://127.45.8.187:8000';
 
-const API_URL = 'http://127.45.8.187:8000'
 const Chatbot = () => {
   const [messages, setMessages] = useState([
     {
@@ -16,12 +20,10 @@ const Chatbot = () => {
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [showChatbot, setShowChatbot] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const chatboxRef = useRef(null);
   const textareaRef = useRef(null);
   const inputInitHeight = useRef(null);
-
-
-
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -51,19 +53,23 @@ const Chatbot = () => {
   };
 
   const generateResponse = async (userMessage) => {
-    // requesting for  response to chat 
-    const res = await axios.post(`${API_URL}/get-response`, userMessage);
-    if (res.status === 200) {
-      return {
-        type: 'incoming',
-        content: res.data.response
-      };
-    } else {
-      return {
-        type: 'incoming',
-        content: 'Sorry, I couldn\'t understand your request. Please try again.'
-      };
+    try {
+      // requesting for response to chat 
+      const res = await axios.post(`${API_URL}/get-response`, { message: userMessage });
+      if (res.status === 200) {
+        return {
+          type: 'incoming',
+          content: res.data.response
+        };
+      } 
+    } catch (error) {
+      console.error("Error generating response:", error);
     }
+    
+    return {
+      type: 'incoming',
+      content: 'Sorry, I couldn\'t understand your request. Please try again.'
+    };
   };
 
   const handleSendMessage = async () => {
@@ -102,8 +108,29 @@ const Chatbot = () => {
     }
   };
 
+  const toggleListening = () => {
+    setIsListening(!isListening);
+  };
+
+  const handleVoiceResult = (transcript) => {
+    console.log("Voice transcript:", transcript);
+    setInputMessage(transcript);
+  };
+
+  const handleVoiceEnd = () => {
+    setIsListening(false);
+  };
+
   return (
     <>
+      {isListening && (
+        <VoiceRecognition 
+          onResult={handleVoiceResult} 
+          onEnd={handleVoiceEnd} 
+          isListening={isListening} 
+        />
+      )}
+      
       <button
         className={`chatbot-toggler ${showChatbot ? 'active' : ''}`}
         onClick={toggleChatbot}
@@ -112,10 +139,10 @@ const Chatbot = () => {
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
             <FaMessage style={{ fontSize: '25px' }} />
           </div>
-          </span>
+        </span>
         <span className="material-symbols-outlined">
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <ImCross style={{ fontSize: '25px',color:"white" }} />
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+            <ImCross style={{ fontSize: '20px', color: "white" }} />
           </div>
         </span>
       </button>
@@ -145,6 +172,15 @@ const Chatbot = () => {
         </ul>
 
         <div className="chat-input">
+          <div onClick={toggleListening} style={{ paddingRight:'10px', paddingLeft:"5px"}}>
+            <span className="material-symbols-rounded">
+              {isListening ? (
+                <FaRegStopCircle style={{ fontSize: '25px', color: 'red' }} />
+              ) : (
+                <FaMicrophone style={{ fontSize: '25px',color:"black" }} />
+              )}
+            </span>
+          </div>
           <textarea
             ref={textareaRef}
             placeholder="Enter a message..."
@@ -160,7 +196,7 @@ const Chatbot = () => {
             onClick={handleSendMessage}
             style={{ visibility: inputMessage.trim() ? 'visible' : 'hidden' }}
           >
-            send
+            <IoSend/>
           </span>
         </div>
       </div>
