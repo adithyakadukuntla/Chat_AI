@@ -110,12 +110,12 @@ const Chatbot = () => {
       >
         <span className="material-symbols-rounded">
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <FaMessage style={{ fontSize: '30px' }} />
+            <FaMessage style={{ fontSize: '25px' }} />
           </div>
           </span>
         <span className="material-symbols-outlined">
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <ImCross style={{ fontSize: '30px' }} />
+            <ImCross style={{ fontSize: '25px',color:"white" }} />
           </div>
         </span>
       </button>
