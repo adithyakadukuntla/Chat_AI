@@ -7,9 +7,11 @@ import { FaMicrophone } from "react-icons/fa";
 import { FaRegStopCircle } from "react-icons/fa";
 import { IoSend } from "react-icons/io5";
 import VoiceRecognition from '../voicerecognition/VoiceRecognition';
-
+import { RiRobot2Fill } from "react-icons/ri";
 // API of backend url
-const API_URL = 'http://127.45.8.187:8000';
+const API_URL = 'http://10.45.8.188:8000';
+
+
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([
@@ -55,7 +57,7 @@ const Chatbot = () => {
   const generateResponse = async (userMessage) => {
     try {
       // requesting for response to chat 
-      const res = await axios.post(`${API_URL}/get-response`, { message: userMessage });
+      const res = await axios.post(`${API_URL}/get-response`, { query: userMessage });
       if (res.status === 200) {
         return {
           type: 'incoming',
@@ -68,7 +70,7 @@ const Chatbot = () => {
     
     return {
       type: 'incoming',
-      content: 'Sorry, I couldn\'t understand your request. Please try again.'
+      content: 'Sorry, I couldn\'t proccess your request. Please try again later.'
     };
   };
 
@@ -86,7 +88,7 @@ const Chatbot = () => {
     }
 
     // Add loading message
-    setMessages(prev => [...prev, { type: 'incoming', content: '..' }]);
+    setMessages(prev => [...prev, { type: 'incoming', content: '...' }]);
 
     // Generate response after a delay
     setTimeout(async () => {
@@ -154,7 +156,9 @@ const Chatbot = () => {
             className="close-btn material-symbols-outlined"
             onClick={() => setShowChatbot(false)}
           >
-            close
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+            <ImCross style={{ fontSize: '15px', color: "white" }} />
+          </div>
           </span>
         </header>
 
@@ -162,7 +166,7 @@ const Chatbot = () => {
           {messages.map((message, index) => (
             <li key={index} className={`chat ${message.type}`}>
               {message.type === 'incoming' && (
-                <span className="material-symbols-outlined"></span>
+               <span><RiRobot2Fill size={24} style={{paddingTop:"3px"}} /></span>
               )}
               <p className={message.error ? 'error' : ''}>
                 {message.content}
