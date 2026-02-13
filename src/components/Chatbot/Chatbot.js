@@ -1,210 +1,439 @@
-import React, { useState, useRef, useEffect } from 'react';
-import './chatbot.css'; // We'll include the styles separately
-import axios from 'axios';
-import { FaMessage } from "react-icons/fa6";
-import { ImCross } from "react-icons/im";
-import { FaMicrophone } from "react-icons/fa";
-import { FaRegStopCircle } from "react-icons/fa";
-import { IoSend } from "react-icons/io5";
-import VoiceRecognition from '../voicerecognition/VoiceRecognition';
+import React, { useState, useRef, useEffect } from "react";
+import "./chatbot.css";
+import axios from "axios";
 import { RiRobot2Fill } from "react-icons/ri";
-// API of backend url
-const API_URL = 'http://10.45.8.188:8000';
+import { FaMicrophone, FaRegStopCircle } from "react-icons/fa";
+import { IoSend } from "react-icons/io5";
+import { ImCross } from "react-icons/im";
+import { HiSpeakerWave, HiSpeakerXMark } from "react-icons/hi2";
+import { FiMaximize, FiMinimize } from "react-icons/fi";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import VoiceRecognition from "../voicerecognition/VoiceRecognition";
+import useTextToSpeech from "../voicerecognition/useTextToSpeech";
+import chatCache from "../../utils/chatCache";
+// import Campus3DMap from "./Campus3DMap";
+import CampusMap from "./CampusMap";
+const API_URL = process.env.REACT_APP_BE_URL || "http://localhost:6230";
+console.log("Chatbot API URL:", API_URL || "Using relative path (same server)");
+// Initial suggested questions
+const INITIAL_SUGGESTIONS = [
+  "What are the BTech CSE placements?",
+  "Show me BTech AI&DS syllabus",
+  "What are the fees for BTech?",
+  "Tell me about ECE department",
+  "How to reach KS Auditorium?",
+  "What is the NIRF ranking?",
+];
 
-
+// Context-aware follow-up suggestions based on collection
+const FOLLOW_UP_SUGGESTIONS = {
+  placements: [
+    "Which companies visit for placements?",
+    "What is the average package?",
+    "Show placement statistics by department",
+  ],
+  syllabus: [
+    "What subjects are in 1st year?",
+    "Show me lab subjects",
+    "What is the exam pattern?",
+  ],
+  fees: [
+    "Are there any scholarships available?",
+    "What are the hostel fees?",
+    "Is there an installment option?",
+  ],
+  departments: [
+    "What is the intake for this department?",
+    "Show me the faculty list",
+    "What specializations are available?",
+  ],
+  campus_navigation: [
+    "Where is the library?",
+    "How to reach the canteen?",
+    "Show me all blocks",
+  ],
+  rankings: [
+    "What is the NIRF rank trend?",
+    "How does it compare to other colleges?",
+    "What are the department-wise rankings?",
+  ],
+  admissions: [
+    "What is the cutoff for CSE?",
+    "How to apply for admission?",
+    "What entrance exams are accepted?",
+  ],
+  faculty: [
+    "Who is the HOD?",
+    "Show me faculty qualifications",
+    "What are the research areas?",
+  ],
+  general: [
+    "Tell me about campus facilities",
+    "What clubs are available?",
+    "Show me the college history",
+  ],
+};
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([
-    {
-      type: 'incoming',
-      content: 'Hi there \nHow can i help you today??'
-    }
+    { type: "incoming", content: "Hi 👋\nHow can I help you today?" },
   ]);
-  const [inputMessage, setInputMessage] = useState('');
+  const [inputMessage, setInputMessage] = useState("");
   const [showChatbot, setShowChatbot] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [currentSuggestions, setCurrentSuggestions] =
+    useState(INITIAL_SUGGESTIONS);
+  const [elapsedTime, setElapsedTime] = useState(0); // Timer state
+
   const chatboxRef = useRef(null);
   const textareaRef = useRef(null);
-  const inputInitHeight = useRef(null);
+
+  // Text-to-speech hook
+  const {
+    speak,
+    stop,
+    toggle: toggleVoice,
+    isSpeaking,
+    isEnabled: isVoiceEnabled,
+    isSupported,
+  } = useTextToSpeech();
 
   useEffect(() => {
-    if (textareaRef.current) {
-      inputInitHeight.current = textareaRef.current.scrollHeight;
-    }
-  }, []);
+    if (chatboxRef.current)
+      chatboxRef.current.scrollTop = chatboxRef.current.scrollHeight;
+  }, [messages, isLoading, elapsedTime]);
 
+  // Auto-resize textarea based on content
   useEffect(() => {
-    // Scroll to bottom when messages change
-    if (chatboxRef.current) {
-      chatboxRef.current.scrollTo(0, chatboxRef.current.scrollHeight);
-    }
-  }, [messages]);
-
-  const toggleChatbot = () => {
-    setShowChatbot(!showChatbot);
-  };
-
-  const handleInputChange = (e) => {
-    setInputMessage(e.target.value);
-
-    // Adjust textarea height
     if (textareaRef.current) {
-      textareaRef.current.style.height = `${inputInitHeight.current}px`;
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        Math.min(textareaRef.current.scrollHeight, 120) + "px";
     }
-  };
+  }, [inputMessage]);
 
-  const generateResponse = async (userMessage) => {
+  // Timer logic
+  useEffect(() => {
+    let interval;
+    if (isLoading) {
+      setElapsedTime(0);
+      interval = setInterval(() => {
+        setElapsedTime((prev) => prev + 0.1);
+      }, 100);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isLoading]);
+
+  const sendMessage = async (messageText = null) => {
+    const textToSend = messageText || inputMessage;
+    if (isLoading || !textToSend.trim()) return;
+
+    setIsLoading(true);
+    setMessages((prev) => [...prev, { type: "outgoing", content: textToSend }]);
+    setInputMessage("");
+
+    const startTime = performance.now();
+
+    // Check frontend cache first
+    const cachedResponse = chatCache.get(textToSend);
+    if (cachedResponse) {
+      const endTime = performance.now();
+      const duration = ((endTime - startTime) / 1000).toFixed(1);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          type: "incoming",
+          content: cachedResponse.answer,
+          navigation: cachedResponse.navigation,
+          responseTime: duration,
+        },
+      ]);
+
+      // Speak cached response if voice is enabled
+      if (isVoiceEnabled && cachedResponse.answer) {
+        speak(cachedResponse.answer);
+      }
+
+      // Update suggestions based on cached collection
+      if (
+        cachedResponse.collection &&
+        FOLLOW_UP_SUGGESTIONS[cachedResponse.collection]
+      ) {
+        setCurrentSuggestions(FOLLOW_UP_SUGGESTIONS[cachedResponse.collection]);
+      } else {
+        setCurrentSuggestions(FOLLOW_UP_SUGGESTIONS.general);
+      }
+
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      // requesting for response to chat 
-      const res = await axios.post(`${API_URL}/get-response`, { query: userMessage });
-      if (res.status === 200) {
-        return {
-          type: 'incoming',
-          content: res.data.response
-        };
-      } 
-    } catch (error) {
-      console.error("Error generating response:", error);
+      const res = await axios.post(`${API_URL}/query`, { query: textToSend });
+
+      const endTime = performance.now();
+      const duration = ((endTime - startTime) / 1000).toFixed(1);
+
+      // Cache the response
+      chatCache.set(textToSend, res.data);
+
+      // Update messages with the response
+      setMessages((prev) => [
+        ...prev,
+        {
+          type: "incoming",
+          content: res.data.answer,
+          navigation: res.data.navigation,
+          responseTime: duration,
+        },
+      ]);
+
+      // Speak the response if voice is enabled
+      if (isVoiceEnabled && res.data.answer) {
+        speak(res.data.answer);
+      }
+
+      // Update suggestions based on the collection returned
+      if (res.data.collection && FOLLOW_UP_SUGGESTIONS[res.data.collection]) {
+        setCurrentSuggestions(FOLLOW_UP_SUGGESTIONS[res.data.collection]);
+      } else {
+        // Fallback to general suggestions if collection not recognized
+        setCurrentSuggestions(FOLLOW_UP_SUGGESTIONS.general);
+      }
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          type: "incoming",
+          content: "Something went wrong!! Please try again later....",
+        },
+      ]);
+      // Keep current suggestions on error
+    } finally {
+      setIsLoading(false);
     }
-    
-    return {
-      type: 'incoming',
-      content: 'Sorry, I couldn\'t proccess your request. Please try again later.'
-    };
-  };
-
-  const handleSendMessage = async () => {
-    const userMessage = inputMessage.trim();
-    if (!userMessage) return;
-
-    // Add user message to chat
-    setMessages(prev => [...prev, { type: 'outgoing', content: userMessage }]);
-    setInputMessage('');
-
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = `${inputInitHeight.current}px`;
-    }
-
-    // Add loading message
-    setMessages(prev => [...prev, { type: 'incoming', content: '...' }]);
-
-    // Generate response after a delay
-    setTimeout(async () => {
-      const responseMessage = await generateResponse(userMessage);
-
-      // Replace loading message with actual response
-      setMessages(prev => {
-        const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = responseMessage;
-        return newMessages;
-      });
-    }, 600);
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey && window.innerWidth > 800) {
+    if (e.key === "Enter" && !e.shiftKey && !isLoading) {
       e.preventDefault();
-      handleSendMessage();
+      sendMessage();
     }
   };
 
-  const toggleListening = () => {
+  const toggleVoiceRecognition = () => {
     setIsListening(!isListening);
   };
 
-  const handleVoiceResult = (transcript) => {
-    console.log("Voice transcript:", transcript);
-    setInputMessage(transcript);
+  const handleSuggestionClick = (question) => {
+    sendMessage(question);
   };
 
-  const handleVoiceEnd = () => {
-    setIsListening(false);
+  const handleVoiceToggle = () => {
+    toggleVoice();
+    if (isSpeaking) {
+      stop();
+    }
   };
+
+  // Show suggestions if it's the initial state OR after bot responds
+  const shouldShowSuggestions =
+    !isLoading &&
+    (messages.length === 1 ||
+      (messages.length > 1 &&
+        messages[messages.length - 1].type === "incoming"));
+
+  // Voice recognition handlers wrapped in useCallback to prevent re-initialization loop
+  const handleVoiceResult = React.useCallback((text) => {
+    setInputMessage(text);
+  }, []);
+
+  const handleVoiceEnd = React.useCallback(() => {
+    setIsListening(false);
+  }, []);
 
   return (
-    <>
+    <div className="cc">
       {isListening && (
-        <VoiceRecognition 
-          onResult={handleVoiceResult} 
-          onEnd={handleVoiceEnd} 
-          isListening={isListening} 
+        <VoiceRecognition
+          onResult={handleVoiceResult}
+          onEnd={handleVoiceEnd}
+          isListening={isListening}
         />
       )}
-      
+
       <button
-        className={`chatbot-toggler ${showChatbot ? 'active' : ''}`}
-        onClick={toggleChatbot}
+        className={`chatbot-toggler ${showChatbot && isMaximized ? "hidden" : ""}`}
+        onClick={() => setShowChatbot(!showChatbot)}
       >
-        <span className="material-symbols-rounded">
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <FaMessage style={{ fontSize: '25px' }} />
-          </div>
-        </span>
-        <span className="material-symbols-outlined">
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <ImCross style={{ fontSize: '20px', color: "white" }} />
-          </div>
-        </span>
+        <RiRobot2Fill />
       </button>
 
-      <div className={`chatbot ${showChatbot ? 'show' : ''}`}>
+      <div
+        className={`chatbot ${showChatbot ? "show" : ""} ${isMaximized ? "maximized" : ""}`}
+      >
         <header>
-          <h2>VJ Jyothi Chatbot</h2>
-          <span
-            className="close-btn material-symbols-outlined"
-            onClick={() => setShowChatbot(false)}
-          >
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <ImCross style={{ fontSize: '15px', color: "white" }} />
+          <div className="header-left">
+            <h2>CampusGenie AI</h2>
+            <a
+              href="https://forms.gle/hp8jhXmD2GGqZ4RBA"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="feedback-link"
+            >
+              Report Question
+            </a>
           </div>
-          </span>
-        </header>
-
-        <ul className="chatbox" ref={chatboxRef}>
-          {messages.map((message, index) => (
-            <li key={index} className={`chat ${message.type}`}>
-              {message.type === 'incoming' && (
-               <span><RiRobot2Fill size={24} style={{paddingTop:"3px"}} /></span>
-              )}
-              <p className={message.error ? 'error' : ''}>
-                {message.content}
-              </p>
-            </li>
-          ))}
-        </ul>
-
-        <div className="chat-input">
-          <div onClick={toggleListening} style={{ paddingRight:'10px', paddingLeft:"5px"}}>
-            <span className="material-symbols-rounded">
-              {isListening ? (
-                <FaRegStopCircle style={{ fontSize: '25px', color: 'red' }} />
-              ) : (
-                <FaMicrophone style={{ fontSize: '25px',color:"black" }} />
-              )}
+          <div className="header-actions">
+            {isSupported && (
+              <button
+                className={`voice-toggle ${isVoiceEnabled ? "active" : ""}`}
+                onClick={handleVoiceToggle}
+                title={
+                  isVoiceEnabled
+                    ? "Disable voice output"
+                    : "Enable voice output"
+                }
+              >
+                {isVoiceEnabled ? <HiSpeakerWave /> : <HiSpeakerXMark />}
+              </button>
+            )}
+            <button
+              className="maximize-toggle"
+              onClick={() => setIsMaximized(!isMaximized)}
+              title={isMaximized ? "Minimize window" : "Maximize window"}
+            >
+              {isMaximized ? <FiMinimize /> : <FiMaximize />}
+            </button>
+            <span onClick={() => setShowChatbot(false)}>
+              <ImCross />
             </span>
           </div>
+        </header>
+
+        <div className="chatbox" ref={chatboxRef}>
+          {messages.map((msg, i) => (
+            <div key={i} className={`message-row ${msg.type}`}>
+              {msg.type === "incoming" && (
+                <div className="bot-avatar">
+                  <RiRobot2Fill />
+                </div>
+              )}
+              <div className="message-bubble">
+                {msg.responseTime && (
+                  <div className="message-header">
+                    <span className="time-badge">⏱️ {msg.responseTime}s</span>
+                  </div>
+                )}
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    p: ({ children }) => (
+                      <p style={{ marginBottom: "0.5em", lineHeight: "1.6" }}>
+                        {children}
+                      </p>
+                    ),
+                    ol: ({ children }) => (
+                      <ol
+                        style={{ marginLeft: "1.2em", marginBottom: "0.5em" }}
+                      >
+                        {children}
+                      </ol>
+                    ),
+                    ul: ({ children }) => (
+                      <ul
+                        style={{ marginLeft: "1.2em", marginBottom: "0.5em" }}
+                      >
+                        {children}
+                      </ul>
+                    ),
+                    li: ({ children }) => (
+                      <li style={{ marginBottom: "0.3em" }}>{children}</li>
+                    ),
+                  }}
+                >
+                  {msg.content.replace(/\\n/g, "  \\n")}
+                </ReactMarkdown>
+
+                {/* {msg.navigation && <Campus3DMap navigation={msg.navigation} />} */}
+                {msg.navigation && <CampusMap navigation={msg.navigation} />}
+              </div>
+            </div>
+          ))}
+
+          {/* Typing Indicator */}
+          {isLoading && (
+            <div className="message-row incoming">
+              <div className="bot-avatar">
+                <RiRobot2Fill />
+              </div>
+              <div className="message-bubble typing">
+                Typing... ({elapsedTime.toFixed(1)}s)
+              </div>
+            </div>
+          )}
+
+          {/* Suggested Questions */}
+          {shouldShowSuggestions && (
+            <div className="suggestions-container">
+              <p className="suggestions-title">
+                {messages.length === 1
+                  ? "Try asking:"
+                  : "You might also want to know:"}
+              </p>
+              <div className="suggestions-grid">
+                {currentSuggestions.map((question, idx) => (
+                  <button
+                    key={idx}
+                    className="suggestion-chip"
+                    onClick={() => handleSuggestionClick(question)}
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Unified Input Bar */}
+        <div
+          style={{ display: "flex", gap: "10px", padding: "0 15px 10px 15px" }}
+        ></div>
+        <div className="input-bar">
+          <button
+            onClick={toggleVoiceRecognition}
+            className={isListening ? "recording" : ""}
+            title={isListening ? "Stop recording" : "Start voice input"}
+          >
+            {isListening ? <FaRegStopCircle /> : <FaMicrophone />}
+          </button>
+
           <textarea
             ref={textareaRef}
-            placeholder="Enter a message..."
-            spellCheck="false"
-            required
             value={inputMessage}
-            onChange={handleInputChange}
+            placeholder="For better results, mention: BTech/MTech, Department (CSE, ECE, AI&DS, etc.)"
+            onChange={(e) => setInputMessage(e.target.value)}
             onKeyDown={handleKeyDown}
+            rows={1}
           />
-          <span
-            id="send-btn"
-            className="material-symbols-rounded"
-            onClick={handleSendMessage}
-            style={{ visibility: inputMessage.trim() ? 'visible' : 'hidden' }}
+
+          <button
+            onClick={() => sendMessage()}
+            title="Send message"
+            disabled={isLoading || !inputMessage.trim()}
           >
-            <IoSend/>
-          </span>
+            <IoSend />
+          </button>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
